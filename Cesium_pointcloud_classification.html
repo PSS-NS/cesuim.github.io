@@ -156,20 +156,17 @@ function buildPanel() {
   title.style.marginBottom = "6px";
   panel.appendChild(title);
 
-  // 全選択/全解除/反転 + 緊急 全表示
+  // 全選択/全解除/選択反転
   var row1 = document.createElement("div");
   row1.appendChild(makeButton("全選択", function () { setAllSelected(true); }));
   row1.appendChild(makeButton("全解除", function () { setAllSelected(false); }));
-  row1.appendChild(makeButton("反転",   function () {
+  row1.appendChild(makeButton("選択反転",   function () {
     for (var i = 0; i < CLASSES.length; i++) {
       var v = CLASSES[i].value;
       selected[v] = !selected[v];
       markActive(btnByValue[v], selected[v]);
     }
     applyFromSelection();
-  }));
-  row1.appendChild(makeButton("緊急 全表示", function () {
-    tileset.style = new Cesium.Cesium3DTileStyle({ show: "true", pointSize: 3.0 });
   }));
   row1.style.marginBottom = "4px";
   panel.appendChild(row1);
@@ -237,3 +234,4 @@ Cesium.Cesium3DTileset.fromIonAssetId(3621736)
   </script>
 </body>
 </html>
+
