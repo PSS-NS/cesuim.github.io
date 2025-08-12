@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <title>Cesium Demo</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- Cesium CDN（バージョンは必要に応じて固定） -->
+  <link rel="stylesheet" href="https://unpkg.com/cesium@1.120.0/Build/Cesium/Widgets/widgets.css">
+  <style>
+    html, body, #cesiumContainer { width:100%; height:100%; margin:0; padding:0; overflow:hidden; }
+  </style>
+</head>
+<body>
+  <div id="cesiumContainer"></div>
+
+  <script src="https://unpkg.com/cesium@1.120.0/Build/Cesium/Cesium.js"></script>
+  <script>
+// Sandcastle: JavaScript only
+
+Cesium.Ion.defaultAccessToken =
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiIwNDFmNjBiZS1kMTVlLTQ2NjgtYTA2ZS1hNGFkNTRjMTdhNzMiLCJpZCI6MTk4Njc1LCJpYXQiOjE3MDkxNjg4NTB9.uhN7qwGLHgbqNo5vi-m3R3uLP77et4YDuyE8Npfxhq0";
+
+var viewer = new Cesium.Viewer("cesiumContainer");
+
+// 表示ラベルは日本語、分類判定は value を使用
+var CLASSES = [
+  { label: "地面",   value: 2  },
+  { label: "フェンス", value: 4  },
+  { label: "植生",   value: 5  },
+  { label: "建物",   value: 6  },
+  { label: "電線",   value: 14 },
+  { label: "電柱",   value: 20 },
+  { label: "車",     value: 21 }
+];
+
+var tileset;
+var defaultColorStyle = null;
+
+// 選択状態とボタン参照
+var selected = {};
+var btnByValue = {};
+
+function applyClassificationFilter(values) {
+  var showExpr;
+  if (Array.isArray(values) && values.length > 0) {
+    var orTerms = values.map(function (v) { return "${Classification} === " + Number(v); });
+    showExpr = "(" + orTerms.join(" || ") + ") && isFinite(${Classification})";
+  } else {
+    showExpr = "false";
+  }
+  var styleInit = { show: showExpr };
+  if (defaultColorStyle) styleInit.color = defaultColorStyle;
+  if (typeof styleInit.pointSize === "undefined") styleInit.pointSize = 3.0; // 点群を見やすく
+  tileset.style = new Cesium.Cesium3DTileStyle(styleInit);
+}
+
+function applyFromSelection() {
+  var active = [];
+  for (var i = 0; i < CLASSES.length; i++) {
+    var v = CLASSES[i].value;
+    if (selected[v]) active.push(v);
+  }
+  applyClassificationFilter(active);
+}
+
+function setAllSelected(flag) {
+  for (var i = 0; i < CLASSES.length; i++) {
+    var v = CLASSES[i].value;
+    selected[v] = flag;
+    markActive(btnByValue[v], flag);
+  }
+  applyFromSelection();
+}
+
+function toggleValue(v) {
+  selected[v] = !selected[v];
+  markActive(btnByValue[v], selected[v]);
+  applyFromSelection();
+}
+
+function markActive(btn, active) {
+  if (!btn) return;
+  btn.style.background = active ? "#e9e9e9" : "#fff";
+  btn.style.borderColor = active ? "#888" : "#bbb";
+}
+
+function makeButton(label, onClick) {
+  var b = document.createElement("button");
+  b.textContent = label; // 日本語ラベルのみ
+  b.style.margin = "2px";
+  b.style.padding = "4px 8px";
+  b.style.border = "1px solid #bbb";
+  b.style.borderRadius = "6px";
+  b.style.background = "#fff";
+  b.style.cursor = "pointer";
+  b.addEventListener("click", onClick);
+  b.addEventListener("mouseenter", function () { b.style.background = "#f3f3f3"; });
+  b.addEventListener("mouseleave", function () {
+    var isActive = false;
+    for (var v in btnByValue) { if (btnByValue[v] === b) { isActive = !!selected[v]; break; } }
+    b.style.background = isActive ? "#e9e9e9" : "#fff";
+  });
+  return b;
+}
+
+function buildPanel() {
+  var panel = document.createElement("div");
+  panel.style.position = "absolute";
+  panel.style.top = "10px";
+  panel.style.left = "10px";
+  panel.style.zIndex = "999";
+  panel.style.background = "rgba(255,255,255,0.95)";
+  panel.style.borderRadius = "10px";
+  panel.style.padding = "8px";
+  panel.style.font = "12px/1.4 sans-serif";
+  panel.style.boxShadow = "0 2px 10px rgba(0,0,0,0.15)";
+
+  var title = document.createElement("div");
+  title.textContent = "分類の表示（複数選択可）";
+  title.style.fontWeight = "bold";
+  title.style.marginBottom = "6px";
+  panel.appendChild(title);
+
+  // 全選択/全解除/反転
+  var row1 = document.createElement("div");
+  row1.appendChild(makeButton("全選択", function () { setAllSelected(true); }));
+  row1.appendChild(makeButton("全解除", function () { setAllSelected(false); }));
+  row1.appendChild(makeButton("反転",   function () {
+    for (var i = 0; i < CLASSES.length; i++) {
+      var v = CLASSES[i].value;
+      selected[v] = !selected[v];
+      markActive(btnByValue[v], selected[v]);
+    }
+    applyFromSelection();
+  }));
+  panel.appendChild(row1);
+
+  // 各分類のトグルボタン（日本語ラベル）
+  var row2 = document.createElement("div");
+  for (var i = 0; i < CLASSES.length; i++) {
+    (function(cls){
+      var btn = makeButton(cls.label, function () { toggleValue(cls.value); });
+      btnByValue[cls.value] = btn;
+      row2.appendChild(btn);
+    })(CLASSES[i]);
+  }
+  panel.appendChild(row2);
+
+  viewer.container.appendChild(panel);
+}
+
+Cesium.Cesium3DTileset.fromIonAssetId(3620531)
+  .then(function (ts) {
+    tileset = ts;
+    viewer.scene.primitives.add(tileset);
+    return viewer.zoomTo(tileset);
+  })
+  .then(function () {
+    // 既定の色スタイル（あれば保持）
+    var ds = tileset &&
+             tileset.asset &&
+             tileset.asset.extras &&
+             tileset.asset.extras.ion &&
+             tileset.asset.extras.ion.defaultStyle;
+
+    if (Cesium.defined(ds) && Cesium.defined(ds.color)) {
+      defaultColorStyle = ds.color;
+      tileset.style = new Cesium.Cesium3DTileStyle({ color: defaultColorStyle });
+    } else {
+      tileset.style = new Cesium.Cesium3DTileStyle({ pointSize: 3.0 });
+    }
+
+    // パネル生成
+    buildPanel();
+
+    // 初期は全選択＝全表示
+    for (var i = 0; i < CLASSES.length; i++) {
+      var v = CLASSES[i].value;
+      selected[v] = true;
+      markActive(btnByValue[v], true);
+    }
+    applyFromSelection();
+  })
+  .catch(function (e) {
+    console.error(e);
+  });
+
+  </script>
+</body>
+</html>
