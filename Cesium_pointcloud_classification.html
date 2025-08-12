@@ -1,28 +1,44 @@
-<!doctype html>
-<html lang="ja">
-<head>
-  <meta charset="utf-8" />
-  <title>Cesium Demo</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <!-- Cesium CDN（バージョンは必要に応じて固定） -->
-  <link rel="stylesheet" href="https://unpkg.com/cesium@1.120.0/Build/Cesium/Widgets/widgets.css">
-  <style>
-    html, body, #cesiumContainer { width:100%; height:100%; margin:0; padding:0; overflow:hidden; }
-  </style>
-</head>
-<body>
-  <div id="cesiumContainer"></div>
-
-  <script src="https://unpkg.com/cesium@1.120.0/Build/Cesium/Cesium.js"></script>
-  <script>
-// Sandcastle: JavaScript only
-
+// 公開用トークン
 Cesium.Ion.defaultAccessToken =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiI4Y2ZlMjY3NC0wMjYyLTQwM2QtYWNlYi04YjU2OWZkNjg0NjMiLCJpZCI6MTk4Njc1LCJpYXQiOjE3NTUwMDgzNjV9.bGpVqh1jBe3onROG352ZZuMisD4UBDGudxXslQkL-ns";
 
-var viewer = new Cesium.Viewer("cesiumContainer");
+// 1) Viewer
+var viewer = new Cesium.Viewer("cesiumContainer", {
+  // ここでは terrain は後から設定（Sandcastle互換のため）
+  timeline: false,
+  animation: false
+});
 
-// 表示ラベルは日本語、分類判定は value を使用
+// 地形に対しての可視性
+viewer.scene.globe.depthTestAgainstTerrain = true;
+
+// 2) Japan Regional Terrain (2767062) を設定（新旧APIどちらでも動く）
+(function setJapanTerrain(v) {
+  function fallbackOldAPI() {
+    if (Cesium.CesiumTerrainProvider &&
+        typeof Cesium.CesiumTerrainProvider.fromIonAssetId === "function") {
+      Cesium.CesiumTerrainProvider.fromIonAssetId(2767062)
+        .then(function (provider) { v.terrainProvider = provider; })
+        .catch(function (err) { console.error("Terrain(old API) error:", err); });
+    } else {
+      console.warn("fromIonAssetId が見当たりません。CesiumJSのバージョンを確認してください。");
+    }
+  }
+  if (Cesium.Terrain && typeof Cesium.Terrain.fromIonAssetId === "function") {
+    try {
+      v.terrainProvider = Cesium.Terrain.fromIonAssetId(2767062, {
+        requestVertexNormals: true
+      });
+    } catch (e) {
+      console.error("Terrain(new API) failed, fallback to old:", e);
+      fallbackOldAPI();
+    }
+  } else {
+    fallbackOldAPI();
+  }
+})(viewer);
+
+// 3) 分類（日本語ラベル）— value は PointCloudClassification に合わせる
 var CLASSES = [
   { label: "地面",   value: 2  },
   { label: "フェンス", value: 4  },
@@ -40,6 +56,7 @@ var defaultColorStyle = null;
 var selected = {};
 var btnByValue = {};
 
+// --- 分類フィルタ適用 ---
 function applyClassificationFilter(values) {
   var showExpr;
   if (Array.isArray(values) && values.length > 0) {
@@ -50,7 +67,7 @@ function applyClassificationFilter(values) {
   }
   var styleInit = { show: showExpr };
   if (defaultColorStyle) styleInit.color = defaultColorStyle;
-  if (typeof styleInit.pointSize === "undefined") styleInit.pointSize = 3.0; // 点群を見やすく
+  if (typeof styleInit.pointSize === "undefined") styleInit.pointSize = 3.0; // 見やすさ
   tileset.style = new Cesium.Cesium3DTileStyle(styleInit);
 }
 
@@ -78,6 +95,7 @@ function toggleValue(v) {
   applyFromSelection();
 }
 
+// --- ボタンUI ---
 function markActive(btn, active) {
   if (!btn) return;
   btn.style.background = active ? "#e9e9e9" : "#fff";
@@ -86,7 +104,7 @@ function markActive(btn, active) {
 
 function makeButton(label, onClick) {
   var b = document.createElement("button");
-  b.textContent = label; // 日本語ラベルのみ
+  b.textContent = label;
   b.style.margin = "2px";
   b.style.padding = "4px 8px";
   b.style.border = "1px solid #bbb";
@@ -121,7 +139,7 @@ function buildPanel() {
   title.style.marginBottom = "6px";
   panel.appendChild(title);
 
-  // 全選択/全解除/反転
+  // 全選択/全解除/反転 + 緊急 全表示
   var row1 = document.createElement("div");
   row1.appendChild(makeButton("全選択", function () { setAllSelected(true); }));
   row1.appendChild(makeButton("全解除", function () { setAllSelected(false); }));
@@ -133,9 +151,13 @@ function buildPanel() {
     }
     applyFromSelection();
   }));
+  row1.appendChild(makeButton("緊急 全表示", function () {
+    tileset.style = new Cesium.Cesium3DTileStyle({ show: "true", pointSize: 3.0 });
+  }));
+  row1.style.marginBottom = "4px";
   panel.appendChild(row1);
 
-  // 各分類のトグルボタン（日本語ラベル）
+  // 各分類トグル
   var row2 = document.createElement("div");
   for (var i = 0; i < CLASSES.length; i++) {
     (function(cls){
@@ -149,28 +171,29 @@ function buildPanel() {
   viewer.container.appendChild(panel);
 }
 
-Cesium.Cesium3DTileset.fromIonAssetId(3620531)
+Cesium.Cesium3DTileset.fromIonAssetId(3621736)
   .then(function (ts) {
     tileset = ts;
     viewer.scene.primitives.add(tileset);
     return viewer.zoomTo(tileset);
   })
   .then(function () {
-    // 既定の色スタイル（あれば保持）
+    // defaultStyle を尊重（色など）
     var ds = tileset &&
              tileset.asset &&
              tileset.asset.extras &&
              tileset.asset.extras.ion &&
              tileset.asset.extras.ion.defaultStyle;
 
-    if (Cesium.defined(ds) && Cesium.defined(ds.color)) {
-      defaultColorStyle = ds.color;
-      tileset.style = new Cesium.Cesium3DTileStyle({ color: defaultColorStyle });
+    if (Cesium.defined(ds)) {
+      tileset.style = new Cesium.Cesium3DTileStyle(ds);
+      // 後で show だけ上書きするため、既定の color 値を保持
+      if (Cesium.defined(ds.color)) defaultColorStyle = ds.color;
     } else {
       tileset.style = new Cesium.Cesium3DTileStyle({ pointSize: 3.0 });
     }
 
-    // パネル生成
+    // 分類パネル
     buildPanel();
 
     // 初期は全選択＝全表示
@@ -180,12 +203,16 @@ Cesium.Cesium3DTileset.fromIonAssetId(3620531)
       markActive(btnByValue[v], true);
     }
     applyFromSelection();
+
+    // デバッグ: クリックで Classification を確認
+    var handler = new Cesium.ScreenSpaceEventHandler(viewer.canvas);
+    handler.setInputAction(function (click) {
+      var f = viewer.scene.pick(click.position);
+      if (f && typeof f.getProperty === "function") {
+        try { console.log("Classification:", f.getProperty("Classification")); } catch (e) {}
+      }
+    }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
   })
   .catch(function (e) {
     console.error(e);
   });
-
-  </script>
-</body>
-</html>
-
